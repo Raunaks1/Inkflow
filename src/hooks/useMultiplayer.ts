@@ -18,7 +18,7 @@ export type ChatMessage = {
   timestamp: number;
 };
 
-// Public Yjs demo WebSocket server — reliable, works through all firewalls
+// Public Yjs demo WebSocket server (verified working via test-sync.mjs)
 const WS_SERVER_URL = 'wss://demos.yjs.dev';
 
 export function useMultiplayer(initialElements: DrawingElement[]) {
@@ -39,6 +39,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
 
   const myColorRef = useRef<string>(`hsl(${Math.random() * 360}, 80%, 50%)`);
+  const myNameRef = useRef<string>('');
 
   // Initialize Ydoc structures once
   useEffect(() => {
@@ -80,9 +81,12 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     };
   }, []);
 
-  // Handle URL hash changes to connect/disconnect WebSocket provider
+  // Connect/disconnect WebSocket provider based on URL hash.
+  // This effect has NO dependencies on myName — it runs ONCE on mount
+  // and listens for hashchange events. This prevents the provider from
+  // being destroyed and recreated when the user enters their name.
   useEffect(() => {
-    const handleHashChange = () => {
+    const connectToRoom = () => {
       const hash = window.location.hash;
       const params = new URLSearchParams(hash.replace('#', '?'));
       const room = params.get('room');
@@ -93,10 +97,18 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
         setRoomUrl(window.location.href);
 
         if (!providerRef.current) {
-          // Use key as part of room name for privacy (no one can guess the full room name)
           const fullRoom = `${room}-${key}`;
+          console.log('[Inkflow] Connecting to room:', fullRoom);
           const provider = new WebsocketProvider(WS_SERVER_URL, fullRoom, ydocRef.current);
           providerRef.current = provider;
+
+          provider.on('status', (event: { status: string }) => {
+            console.log('[Inkflow] WebSocket status:', event.status);
+          });
+
+          provider.on('sync', (isSynced: boolean) => {
+            console.log('[Inkflow] Synced:', isSynced);
+          });
 
           // Handle awareness (cursors)
           const awareness = provider.awareness;
@@ -111,19 +123,16 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
             setRemoteCursors(cursors);
           });
 
-          if (myName) {
+          // Broadcast name if already set
+          const name = myNameRef.current;
+          if (name) {
             awareness.setLocalStateField('cursor', {
               x: 0,
               y: 0,
-              name: myName,
+              name,
               color: myColorRef.current,
             });
           }
-
-          // Log connection status for debugging
-          provider.on('status', (event: { status: string }) => {
-            console.log('[Inkflow Sync]', event.status);
-          });
         }
       } else {
         setIsShared(false);
@@ -136,33 +145,34 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
       }
     };
 
-    handleHashChange();
-    window.addEventListener('hashchange', handleHashChange);
+    connectToRoom();
+    window.addEventListener('hashchange', connectToRoom);
     return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-      if (providerRef.current) providerRef.current.destroy();
+      window.removeEventListener('hashchange', connectToRoom);
+      if (providerRef.current) {
+        providerRef.current.destroy();
+        providerRef.current = null;
+      }
     };
-  }, [myName]);
+  }, []); // <-- NO dependency on myName! Provider is created once and never destroyed.
 
   // Update my cursor position
   const updateCursor = useCallback(
     (x: number, y: number) => {
-      if (providerRef.current && myName) {
+      if (providerRef.current && myNameRef.current) {
         providerRef.current.awareness.setLocalStateField('cursor', {
           x,
           y,
-          name: myName,
+          name: myNameRef.current,
           color: myColorRef.current,
         });
       }
     },
-    [myName]
+    []
   );
 
   /**
    * updateElement: Directly updates a SINGLE element in the Yjs map.
-   * This is the primary write path for drawing/moving/resizing.
-   * It does NOT touch any other elements, so remote changes are never overwritten.
    */
   const updateElement = useCallback((el: DrawingElement) => {
     const ydoc = ydocRef.current;
@@ -175,8 +185,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   }, []);
 
   /**
-   * setElements: Replaces the ENTIRE canvas (used for clear, import, initial load).
-   * Correctly replaces everything in the Yjs map.
+   * setElements: Replaces the ENTIRE canvas (clear, import, initial load).
    */
   const setElements = useCallback(
     (newElements: DrawingElement[] | ((prev: DrawingElement[]) => DrawingElement[])) => {
@@ -197,7 +206,6 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
             }
           });
 
-          // Delete elements not in new array (only safe for full-canvas replacements)
           Array.from(yElements.keys()).forEach((id) => {
             if (!nextIds.has(id)) {
               yElements.delete(id);
@@ -210,7 +218,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   );
 
   /**
-   * deleteElements: Explicitly removes specific elements by ID from the Yjs map.
+   * deleteElements: Explicitly removes specific elements by ID.
    */
   const deleteElements = useCallback((ids: string[]) => {
     if (ydocRef.current && yElementsRef.current) {
@@ -236,11 +244,11 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
 
   const sendChatMessage = useCallback(
     (message: string) => {
-      if (yChatRef.current && myName) {
+      if (yChatRef.current && myNameRef.current) {
         yChatRef.current.push([
           {
             id: Math.random().toString(36).substring(2, 9),
-            name: myName,
+            name: myNameRef.current,
             color: myColorRef.current,
             message,
             timestamp: Date.now(),
@@ -248,7 +256,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
         ]);
       }
     },
-    [myName]
+    []
   );
 
   // Action to start sharing
@@ -275,10 +283,12 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     }
   }, []);
 
-  // Set my name
+  // Set my name — uses a ref so provider effect doesn't need to re-run
   const updateMyName = useCallback((name: string) => {
     setMyName(name);
+    myNameRef.current = name;
     localStorage.setItem('inkflow-username', name);
+    // Update awareness immediately (provider is NOT recreated)
     if (providerRef.current) {
       providerRef.current.awareness.setLocalStateField('cursor', {
         x: 0,
