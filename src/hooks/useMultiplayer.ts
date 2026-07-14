@@ -19,7 +19,7 @@ export type ChatMessage = {
 };
 
 // Public Yjs demo WebSocket server — reliable, works through all firewalls
-const WS_SERVER_URL = 'wss://demos.yjs.dev/ws';
+const WS_SERVER_URL = 'wss://demos.yjs.dev';
 
 export function useMultiplayer(initialElements: DrawingElement[]) {
   const [elements, setLocalElements] = useState<DrawingElement[]>(initialElements);

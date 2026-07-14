@@ -305,10 +305,12 @@ export default function App() {
     }
   }, []);
 
-  // --- Save to Local Storage when elements change ---
+  // --- Save to Local Storage when elements change (only when not in a shared session) ---
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
-  }, [elements]);
+    if (!isShared) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
+    }
+  }, [elements, isShared]);
 
   // --- Theme Syncer ---
   useEffect(() => {
