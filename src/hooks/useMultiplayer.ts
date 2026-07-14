@@ -183,18 +183,21 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
               yElements.set(el.id, el);
             }
           });
-
-          // Only delete elements that were in our local state but were explicitly removed
-          // This prevents deleting remote elements that just haven't synced to React yet
-          prevIds.forEach(id => {
-            if (!nextIds.has(id)) {
-              yElements.delete(id);
-            }
-          });
+          // Implicit deletions removed: we now use explicit deleteElements()
         }, 'local-user'); // tagging the transaction is important for UndoManager!
       }
       return next;
     });
+  }, []);
+
+  const deleteElements = useCallback((ids: string[]) => {
+    if (ydocRef.current && yElementsRef.current) {
+      ydocRef.current.transact(() => {
+        ids.forEach(id => {
+          yElementsRef.current?.delete(id);
+        });
+      }, 'local-user');
+    }
   }, []);
 
   const undo = useCallback(() => {
@@ -260,6 +263,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   return {
     elements,
     setElements,
+    deleteElements,
     remoteCursors,
     updateCursor,
     isShared,

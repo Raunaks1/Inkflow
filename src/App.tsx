@@ -204,6 +204,7 @@ export default function App() {
   const {
     elements,
     setElements,
+    deleteElements,
     remoteCursors,
     updateCursor,
     isShared,
@@ -791,6 +792,7 @@ export default function App() {
       if (clicked) {
         const remaining = elements.filter((el) => el.id !== clicked.id);
         setElements(remaining);
+        deleteElements([clicked.id]);
         pushHistory(remaining);
       }
       return;
@@ -1114,6 +1116,7 @@ export default function App() {
 
     if (trimmed === '') {
       updatedList = elements.filter((el) => el.id !== editingElement.id);
+      deleteElements([editingElement.id]);
       setSelectedIds([]);
     } else {
       updatedList = elements.map((el) => {
@@ -1149,11 +1152,14 @@ export default function App() {
 
   const deleteSelectedElements = () => {
     if (selectedIds.length === 0) return;
-    const filtered = elements.filter(el =>
-      !selectedIds.includes(el.id) &&
-      !(el.type === 'arrow' && (selectedIds.includes(el.boundToStart ?? '') || selectedIds.includes(el.boundToEnd ?? '')))
-    );
+    const deletedIds: string[] = [];
+    const filtered = elements.filter(el => {
+      const isSelected = selectedIds.includes(el.id) || (el.type === 'arrow' && (selectedIds.includes(el.boundToStart ?? '') || selectedIds.includes(el.boundToEnd ?? '')));
+      if (isSelected) deletedIds.push(el.id);
+      return !isSelected;
+    });
     setElements(filtered);
+    deleteElements(deletedIds);
     pushHistory(filtered);
     // Clear editing state if any selected element was being edited
     setEditingElement(prev => (prev && selectedIds.includes(prev.id) ? null : prev));
@@ -1181,13 +1187,16 @@ export default function App() {
   const handlePermanentDelete = (id: string) => {
     const updated = elements.filter(el => el.id !== id);
     setElements(updated);
+    deleteElements([id]);
     pushHistory(updated);
   };
 
   const handleEmptyTrash = () => {
     if (window.confirm('Are you sure you want to permanently delete all items in the trash?')) {
+      const deletedIds = elements.filter(el => el.isDeleted).map(el => el.id);
       const updated = elements.filter(el => !el.isDeleted);
       setElements(updated);
+      deleteElements(deletedIds);
       pushHistory(updated);
     }
   };
@@ -1215,8 +1224,14 @@ export default function App() {
 
   const deleteElement = (id: string) => {
     // Permanently remove the element and any arrows bound to it
-    const filtered = elements.filter(el => el.id !== id && !(el.type === 'arrow' && (el.boundToStart === id || el.boundToEnd === id)));
+    const deletedIds: string[] = [];
+    const filtered = elements.filter(el => {
+      const isDeleted = el.id === id || (el.type === 'arrow' && (el.boundToStart === id || el.boundToEnd === id));
+      if (isDeleted) deletedIds.push(el.id);
+      return !isDeleted;
+    });
     setElements(filtered);
+    deleteElements(deletedIds);
     pushHistory(filtered);
     // Clear editing state if the deleted element was being edited
     setEditingElement(prev => (prev && prev.id === id ? null : prev));
