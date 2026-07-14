@@ -141,6 +141,11 @@ const resizeElement = (
     }
   }
 
+  // Image is a box-like element; reuse generic box resizing logic.
+  if (type === 'image') {
+    // No special handling needed; continue to generic box resize.
+  }
+
   let newX1 = x1;
   let newY1 = y1;
   let newX2 = x2;
@@ -1394,6 +1399,16 @@ export default function App() {
     e.target.value = ''; // reset input
   };
 
+  const handleToolbarImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const centerClientX = window.innerWidth / 2;
+      const centerClientY = window.innerHeight / 2;
+      handleImageFile(file, centerClientX, centerClientY);
+      e.target.value = ''; // Reset input to allow uploading the same file again
+    }
+  };
+
   return (
     <div 
       className={`app-container ${theme}`}
@@ -1453,7 +1468,7 @@ export default function App() {
       )}
 
       {/* Floating Toolbar (Top Center) */}
-      <Toolbar activeTool={tool} setTool={setTool} />
+      <Toolbar activeTool={tool} setTool={setTool} onImageUpload={handleToolbarImageUpload} />
 
       {/* Floating Styling and Control Sidebar (Left side) */}
       <Sidebar

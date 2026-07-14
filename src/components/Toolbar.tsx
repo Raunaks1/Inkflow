@@ -14,15 +14,17 @@ import {
   Type,
   Eraser,
   Zap,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { ElementType } from '../types';
 
 interface ToolbarProps {
   activeTool: ElementType;
   setTool: (tool: ElementType) => void;
+  onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, setTool }) => {
+export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, setTool, onImageUpload }) => {
   const tools = [
     { type: 'select' as ElementType, icon: MousePointer, label: 'Select', shortcut: '1' },
     { type: 'pan' as ElementType, icon: Hand, label: 'Pan', shortcut: '2' },
@@ -38,6 +40,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, setTool }) => {
     { type: 'arrow' as ElementType, icon: ArrowRight, label: 'Arrow', shortcut: '7' },
     { type: 'text' as ElementType, icon: Type, label: 'Text', shortcut: '8' },
     { type: 'eraser' as ElementType, icon: Eraser, label: 'Eraser', shortcut: '9' },
+    { type: 'image' as ElementType, icon: ImageIcon, label: 'Image', shortcut: 'I' },
   ];
 
   return (
@@ -45,6 +48,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, setTool }) => {
       {tools.map((t) => {
         const IconComponent = t.icon;
         const isActive = activeTool === t.type;
+        
+        if (t.type === 'image') {
+          return (
+            <label
+              key={t.type}
+              className={`toolbar-btn`}
+              title={`${t.label} (${t.shortcut})`}
+              aria-label={t.label}
+              style={{ cursor: 'pointer', margin: 0 }}
+            >
+              <IconComponent size={20} className="icon-svg" />
+              <span className="shortcut-badge">{t.shortcut}</span>
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={onImageUpload}
+                style={{ display: 'none' }}
+              />
+            </label>
+          );
+        }
+
         return (
           <button
             key={t.type}
