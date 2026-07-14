@@ -151,9 +151,16 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     window.history.pushState({}, '', url.toString());
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     
-    navigator.clipboard.writeText(url.toString()).then(() => {
-      alert('Link copied to clipboard! Share it to collaborate.');
-    });
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        alert('Link copied to clipboard! Share it to collaborate.');
+      }).catch(err => {
+        console.error('Failed to copy text: ', err);
+        alert(`Your share link is:\n\n${url.toString()}\n\nPlease copy this link to share.`);
+      });
+    } else {
+      alert(`Your share link is:\n\n${url.toString()}\n\nPlease copy this link to share.`);
+    }
   }, []);
 
   // Set my name

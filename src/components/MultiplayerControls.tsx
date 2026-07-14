@@ -36,7 +36,7 @@ export function MultiplayerControls({
   };
 
   return (
-    <div className="absolute top-4 right-4 z-40 flex items-center gap-3">
+    <div className="flex items-center gap-3 relative z-40">
       {/* Name editor if shared */}
       {isShared && (
         <div className="bg-white/80 dark:bg-[#1a2235]/80 backdrop-blur-md rounded-xl p-1.5 flex items-center shadow-sm border border-slate-200/50 dark:border-slate-800/50 gap-2">
@@ -79,7 +79,7 @@ export function MultiplayerControls({
         className={`flex items-center gap-2 px-3 py-2 rounded-xl shadow-sm transition-all duration-200 backdrop-blur-md border ${
           isShared
             ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-            : 'bg-white/80 dark:bg-[#1a2235]/80 border-slate-200/50 dark:border-slate-800/50 text-slate-700 dark:text-slate-300 hover:scale-105'
+            : 'bg-[var(--panel-bg)] border-[var(--panel-border)] text-slate-700 dark:text-slate-300 hover:scale-105'
         }`}
       >
         {copied ? (

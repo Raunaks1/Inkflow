@@ -77,12 +77,20 @@ body, html {
   z-index: 1;
 }
 
-/* --- Floating Toolbar --- */
-.floating-toolbar {
+.top-center-container {
   position: absolute;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 10;
+  animation: slideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --- Floating Toolbar --- */
+.floating-toolbar {
   display: flex;
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);

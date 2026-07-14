@@ -1527,16 +1527,17 @@ export default function App() {
         />
       )}
 
-      {/* Share and Username Controls */}
-      <MultiplayerControls
-        isShared={isShared}
-        shareSession={shareSession}
-        myName={myName}
-        updateMyName={updateMyName}
-      />
-
-      {/* Floating Toolbar (Top Center) */}
-      <Toolbar activeTool={tool} setTool={setTool} onImageUpload={handleToolbarImageUpload} />
+      {/* Top Center Controls (Toolbar + Multiplayer) */}
+      <div className="top-center-container">
+        <Toolbar activeTool={tool} setTool={setTool} onImageUpload={handleToolbarImageUpload} />
+        
+        <MultiplayerControls
+          isShared={isShared}
+          shareSession={shareSession}
+          myName={myName}
+          updateMyName={updateMyName}
+        />
+      </div>
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
