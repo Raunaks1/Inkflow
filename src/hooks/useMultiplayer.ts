@@ -173,7 +173,6 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
       
       if (ydoc && yElements) {
         ydoc.transact(() => {
-          const prevIds = new Set(prev.map(el => el.id));
           const nextIds = new Set<string>();
 
           next.forEach(el => {
