@@ -76,22 +76,27 @@ export function MultiplayerControls({
       {/* Share Button */}
       <button
         onClick={handleShare}
-        className={`flex items-center gap-2 px-3 py-2 rounded-xl shadow-sm transition-all duration-200 backdrop-blur-md border ${
+        className={`group relative flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold shadow-lg transition-all duration-300 transform hover:-translate-y-0.5 ${
           isShared
-            ? 'bg-blue-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-            : 'bg-[var(--panel-bg)] border-[var(--panel-border)] text-slate-700 dark:text-slate-300 hover:scale-105'
+            ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:from-emerald-500/20 hover:to-teal-500/20 shadow-emerald-500/10'
+            : 'bg-gradient-to-r from-blue-600 to-indigo-600 border border-blue-400/50 text-white hover:from-blue-500 hover:to-indigo-500 hover:shadow-blue-500/40 hover:shadow-xl'
         }`}
       >
         {copied ? (
-          <Check size={18} className="text-green-500" />
+          <Check size={18} className={isShared ? "text-emerald-500" : "text-white"} />
         ) : isShared ? (
-          <Users size={18} />
+          <Users size={18} className="animate-pulse" />
         ) : (
-          <Share2 size={18} />
+          <Share2 size={18} className="group-hover:rotate-12 transition-transform" />
         )}
-        <span className="text-sm font-medium">
+        <span className="text-sm tracking-wide">
           {copied ? 'Copied!' : isShared ? 'Copy Link' : 'Share Session'}
         </span>
+        
+        {/* Subtle glow underneath */}
+        {!isShared && (
+          <div className="absolute inset-0 rounded-xl bg-blue-400 opacity-0 blur-md -z-10 group-hover:opacity-30 transition-opacity duration-300"></div>
+        )}
       </button>
     </div>
   );

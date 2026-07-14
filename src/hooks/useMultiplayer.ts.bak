@@ -10,83 +10,21 @@ export type RemoteCursor = {
   color: string;
 };
 
-export type ChatMessage = {
-  id: string;
-  name: string;
-  color: string;
-  message: string;
-  timestamp: number;
-};
-
 export function useMultiplayer(initialElements: DrawingElement[]) {
   const [elements, setLocalElements] = useState<DrawingElement[]>(initialElements);
   const [remoteCursors, setRemoteCursors] = useState<Record<number, RemoteCursor>>({});
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [myName, setMyName] = useState<string>('');
   const [isShared, setIsShared] = useState<boolean>(false);
   const [roomUrl, setRoomUrl] = useState<string>('');
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   
-  // We want the Ydoc to exist ALWAYS (even offline) so we get UndoManager for free!
-  const ydocRef = useRef<Y.Doc>(new Y.Doc());
+  const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebrtcProvider | null>(null);
-  
-  // Lazy initialize Y.Map and UndoManager to avoid re-creation
   const yElementsRef = useRef<Y.Map<DrawingElement> | null>(null);
-  const yChatRef = useRef<Y.Array<ChatMessage> | null>(null);
-  const undoManagerRef = useRef<Y.UndoManager | null>(null);
 
   // We assign a random color for our own cursor
   const myColorRef = useRef<string>(`hsl(${Math.random() * 360}, 80%, 50%)`);
 
-  // Initialize Ydoc structures once
-  useEffect(() => {
-    const ydoc = ydocRef.current;
-    
-    // Set up elements map
-    const yElements = ydoc.getMap<DrawingElement>('elements');
-    yElementsRef.current = yElements;
-    
-    // Set up chat array
-    const yChat = ydoc.getArray<ChatMessage>('chat');
-    yChatRef.current = yChat;
-    
-    // Set up UndoManager tracking ONLY the elements map
-    const undoManager = new Y.UndoManager(yElements);
-    undoManagerRef.current = undoManager;
-    
-    // Sync Yjs map to local React state
-    const updateLocalElements = () => {
-      const newElements = Array.from(yElements.values());
-      // Sort elements by ID to ensure stable render order
-      newElements.sort((a, b) => a.id.localeCompare(b.id));
-      setLocalElements(newElements);
-    };
-    
-    yElements.observe(updateLocalElements);
-    
-    // Sync Chat array to local React state
-    yChat.observe(() => {
-      setChatMessages(yChat.toArray());
-    });
-    
-    // Listen for undo/redo stack changes to update UI buttons
-    undoManager.on('stack-item-added', () => {
-      setCanUndo(undoManager.undoStack.length > 0);
-      setCanRedo(undoManager.redoStack.length > 0);
-    });
-    undoManager.on('stack-item-popped', () => {
-      setCanUndo(undoManager.undoStack.length > 0);
-      setCanRedo(undoManager.redoStack.length > 0);
-    });
-
-    return () => {
-      yElements.unobserve(updateLocalElements);
-    };
-  }, []);
-
-  // Handle URL hash changes to connect/disconnect WebRTC
+  // Handle URL hash changes to initialize or destroy WebRTC
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -98,8 +36,11 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
         setIsShared(true);
         setRoomUrl(window.location.href);
 
-        if (!providerRef.current) {
-          const provider = new WebrtcProvider(room, ydocRef.current, {
+        if (!ydocRef.current) {
+          const ydoc = new Y.Doc();
+          ydocRef.current = ydoc;
+
+          const provider = new WebrtcProvider(room, ydoc, {
             password: key,
             signaling: [
               'wss://signaling.yjs.dev',
@@ -109,28 +50,29 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
           });
           providerRef.current = provider;
 
+          const yElements = ydoc.getMap<DrawingElement>('elements');
+          yElementsRef.current = yElements;
+
+          // Sync from remote to local
+          yElements.observe(() => {
+            const newElements = Array.from(yElements.values());
+            // Sort elements by timestamp fallback to ID to ensure stable render order
+            newElements.sort((a, b) => a.id.localeCompare(b.id));
+            setLocalElements(newElements);
+          });
+
           // Handle awareness (cursors)
           const awareness = provider.awareness;
           awareness.on('change', () => {
             const states = awareness.getStates();
             const cursors: Record<number, RemoteCursor> = {};
             states.forEach((state, clientID) => {
-              if (clientID !== ydocRef.current.clientID && state.cursor) {
+              if (clientID !== ydoc.clientID && state.cursor) {
                 cursors[clientID] = state.cursor;
               }
             });
             setRemoteCursors(cursors);
           });
-          
-          // Re-broadcast our own name/cursor if we just connected
-          if (myName) {
-             awareness.setLocalStateField('cursor', {
-               x: 0,
-               y: 0,
-               name: myName,
-               color: myColorRef.current
-             });
-          }
         }
       } else {
         setIsShared(false);
@@ -139,7 +81,11 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
           providerRef.current.destroy();
           providerRef.current = null;
         }
-        setRemoteCursors({});
+        if (ydocRef.current) {
+          ydocRef.current.destroy();
+          ydocRef.current = null;
+          yElementsRef.current = null;
+        }
       }
     };
 
@@ -148,8 +94,9 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
       if (providerRef.current) providerRef.current.destroy();
+      if (ydocRef.current) ydocRef.current.destroy();
     };
-  }, [myName]);
+  }, []);
 
   // Update my cursor position
   const updateCursor = useCallback((x: number, y: number) => {
@@ -189,35 +136,11 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
               yElements.delete(id);
             }
           });
-        }, 'local-user'); // tagging the transaction is important for UndoManager!
+        });
       }
       return next;
     });
   }, []);
-
-  const undo = useCallback(() => {
-    if (undoManagerRef.current) {
-      undoManagerRef.current.undo();
-    }
-  }, []);
-
-  const redo = useCallback(() => {
-    if (undoManagerRef.current) {
-      undoManagerRef.current.redo();
-    }
-  }, []);
-  
-  const sendChatMessage = useCallback((message: string) => {
-    if (yChatRef.current && myName) {
-       yChatRef.current.push([{
-         id: Math.random().toString(36).substring(2, 9),
-         name: myName,
-         color: myColorRef.current,
-         message,
-         timestamp: Date.now()
-       }]);
-    }
-  }, [myName]);
 
   // Action to start sharing
   const shareSession = useCallback(() => {
@@ -264,12 +187,6 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     shareSession,
     roomUrl,
     myName,
-    updateMyName,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    chatMessages,
-    sendChatMessage
+    updateMyName
   };
 }

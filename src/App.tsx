@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar';
 import { HelpModal } from './components/HelpModal';
 import { CursorOverlay } from './components/CursorOverlay';
 import { MultiplayerControls } from './components/MultiplayerControls';
+import { ChatPanel } from './components/ChatPanel';
 import { useMultiplayer } from './hooks/useMultiplayer';
 import type { ElementType, DrawingElement, Point, ElementStyle } from './types';
 import { drawElement, drawSelectionBox } from './utils/draw';
@@ -208,7 +209,13 @@ export default function App() {
     isShared,
     shareSession,
     myName,
-    updateMyName
+    updateMyName,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    chatMessages,
+    sendChatMessage
   } = useMultiplayer([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tool, setTool] = useState<ElementType>('select');
@@ -250,9 +257,9 @@ export default function App() {
   const [editingElement, setEditingElement] = useState<DrawingElement | null>(null);
   const [editingText, setEditingText] = useState<string>('');
 
-  // Undo / Redo stacks
-  const [history, setHistory] = useState<DrawingElement[][]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  // Undo / Redo stacks (managed by Y.UndoManager in useMultiplayer)
+  // pushHistory is retained as a no-op so we don't need to rewrite 14 call sites
+  const pushHistory = (_newElementsState: DrawingElement[]) => {};
 
   // Help Modal State
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
@@ -286,28 +293,20 @@ export default function App() {
       try {
         const parsed = JSON.parse(stored);
         setElements(parsed);
-        setHistory([parsed]);
-        setHistoryIndex(0);
       } catch (e) {
         const initial = getDefaultElements();
         setElements(initial);
-        setHistory([initial]);
-        setHistoryIndex(0);
       }
     } else {
       const initial = getDefaultElements();
       setElements(initial);
-      setHistory([initial]);
-      setHistoryIndex(0);
     }
   }, []);
 
   // --- Save to Local Storage when elements change ---
   useEffect(() => {
-    if (historyIndex >= 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
-    }
-  }, [elements, historyIndex]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(elements));
+  }, [elements]);
 
   // --- Theme Syncer ---
   useEffect(() => {
@@ -463,10 +462,12 @@ export default function App() {
         }
       }
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, elements, historyIndex, history, action]);
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [elements, selectedIds, action, undo, redo]);
 
   // --- Spacebar Panning (Holding space overrides cursor tool) ---
   useEffect(() => {
@@ -515,25 +516,49 @@ export default function App() {
         const canvasY = (clientY - pan.y) / zoom;
         let w = img.width;
         let h = img.height;
-        if (w > 800) {
-          h = (800 / w) * h;
-          w = 800;
+        const MAX_DIM = 800;
+        
+        if (w > MAX_DIM || h > MAX_DIM) {
+          if (w > h) {
+            h = (MAX_DIM / w) * h;
+            w = MAX_DIM;
+          } else {
+            w = (MAX_DIM / h) * w;
+            h = MAX_DIM;
+          }
         }
         
-        const newEl: DrawingElement = {
-          id: `image-${Date.now()}`,
-          type: 'image',
-          x1: canvasX - w/2,
-          y1: canvasY - h/2,
-          x2: canvasX + w/2,
-          y2: canvasY + h/2,
-          imageData: dataUrl,
-          style: { ...style },
-          seed: Math.floor(Math.random() * 100000),
-        };
-        const next = [...elements, newEl];
-        setElements(next);
-        pushHistory(next);
+        // Compress image using canvas
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const ctx = tempCanvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          // Compress to JPEG with 0.7 quality to keep Y-WebRTC payloads extremely lightweight
+          const compressedDataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
+          
+          const newEl: DrawingElement = {
+            id: `image-${Date.now()}`,
+            type: 'image',
+            x1: canvasX - w/2,
+            y1: canvasY - h/2,
+            x2: canvasX + w/2,
+            y2: canvasY + h/2,
+            imageData: compressedDataUrl,
+            style: { ...style },
+            seed: Math.floor(Math.random() * 100000),
+          };
+          
+          setElements((prev) => {
+             const next = [...prev, newEl];
+             pushHistory(next);
+             return next;
+          });
+          
+          // Switch to select tool so the user can immediately move/resize the image
+          setTool('select');
+        }
       };
       img.src = dataUrl;
     };
@@ -1111,29 +1136,7 @@ export default function App() {
   };
 
   // --- Undo / Redo Operations ---
-  const pushHistory = (newElementsState: DrawingElement[]) => {
-    const copy = history.slice(0, historyIndex + 1);
-    setHistory([...copy, newElementsState]);
-    setHistoryIndex(copy.length);
-  };
-
-  const undo = () => {
-    if (historyIndex > 0) {
-      const nextIndex = historyIndex - 1;
-      setHistoryIndex(nextIndex);
-      setElements(history[nextIndex]);
-      setSelectedIds([]);
-    }
-  };
-
-  const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const nextIndex = historyIndex + 1;
-      setHistoryIndex(nextIndex);
-      setElements(history[nextIndex]);
-      setSelectedIds([]);
-    }
-  };
+  // undo and redo functions are provided by useMultiplayer and Y.UndoManager
 
   const selectAll = () => {
     setSelectedIds(elements.map((el) => el.id));
@@ -1561,8 +1564,8 @@ export default function App() {
         toggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
         undo={undo}
         redo={redo}
-        canUndo={historyIndex > 0}
-        canRedo={historyIndex < history.length - 1}
+        canUndo={canUndo}
+        canRedo={canRedo}
         activeElementSelected={selectedIds.length > 0}
         isOpen={isSidebarOpen}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -1578,6 +1581,15 @@ export default function App() {
       {isShared && (
         <CursorOverlay cursors={remoteCursors} pan={pan} zoom={zoom} />
       )}
+      
+      {/* Chat and User List Panel */}
+      <ChatPanel
+        chatMessages={chatMessages}
+        sendChatMessage={sendChatMessage}
+        remoteCursors={remoteCursors}
+        myName={myName}
+        isShared={isShared}
+      />
 
       {/* Zoom and Help Panels (Bottom Right) */}
       <div className="bottom-right-controls">
