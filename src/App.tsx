@@ -217,7 +217,10 @@ export default function App() {
     canUndo,
     canRedo,
     chatMessages,
-    sendChatMessage
+    sendChatMessage,
+    wsStatus,
+    syncStatus,
+    yElementCount
   } = useMultiplayer([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tool, setTool] = useState<ElementType>('select');
@@ -1628,6 +1631,25 @@ export default function App() {
 
       {/* Keyboard shortcuts modal */}
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* Debug Panel (Bottom Left) */}
+      <div className="debug-panel" style={{
+        position: 'absolute',
+        bottom: 20,
+        left: 20,
+        background: 'rgba(0,0,0,0.7)',
+        color: 'white',
+        padding: '10px',
+        borderRadius: '8px',
+        fontSize: '12px',
+        fontFamily: 'monospace',
+        zIndex: 1000,
+        pointerEvents: 'none'
+      }}>
+        <div>ws: {wsStatus}</div>
+        <div>sync: {syncStatus ? 'yes' : 'no'}</div>
+        <div>elements: {yElementCount} ({elements.length})</div>
+      </div>
     </div>
   );
 }

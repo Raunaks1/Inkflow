@@ -30,6 +30,9 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   const [roomUrl, setRoomUrl] = useState<string>('');
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [wsStatus, setWsStatus] = useState<string>('disconnected');
+  const [syncStatus, setSyncStatus] = useState<boolean>(false);
+  const [yElementCount, setYElementCount] = useState<number>(0);
 
   const ydocRef = useRef<Y.Doc>(new Y.Doc());
   const providerRef = useRef<WebsocketProvider | null>(null);
@@ -59,6 +62,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
       const newElements = Array.from(yElements.values());
       newElements.sort((a, b) => a.id.localeCompare(b.id));
       setLocalElements(newElements);
+      setYElementCount(newElements.length);
     };
 
     yElements.observe(updateLocalElements);
@@ -104,10 +108,12 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
 
           provider.on('status', (event: { status: string }) => {
             console.log('[Inkflow] WebSocket status:', event.status);
+            setWsStatus(event.status);
           });
 
           provider.on('sync', (isSynced: boolean) => {
             console.log('[Inkflow] Synced:', isSynced);
+            setSyncStatus(isSynced);
           });
 
           // Handle awareness (cursors)
@@ -317,5 +323,8 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     canRedo,
     chatMessages,
     sendChatMessage,
+    wsStatus,
+    syncStatus,
+    yElementCount,
   };
 }
