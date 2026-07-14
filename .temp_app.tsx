@@ -7,9 +7,6 @@ import { HelpCircle } from 'lucide-react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { HelpModal } from './components/HelpModal';
-import { CursorOverlay } from './components/CursorOverlay';
-import { MultiplayerControls } from './components/MultiplayerControls';
-import { useMultiplayer } from './hooks/useMultiplayer';
 import type { ElementType, DrawingElement, Point, ElementStyle } from './types';
 import { drawElement, drawSelectionBox } from './utils/draw';
 import {
@@ -199,17 +196,8 @@ export default function App() {
     return saved === 'light' ? 'light' : 'dark';
   });
 
-  // Elements and Multiplayer State
-  const {
-    elements,
-    setElements,
-    remoteCursors,
-    updateCursor,
-    isShared,
-    shareSession,
-    myName,
-    updateMyName
-  } = useMultiplayer([]);
+  // Elements and Selections
+  const [elements, setElements] = useState<DrawingElement[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tool, setTool] = useState<ElementType>('select');
   const [laserTick, setLaserTick] = useState(0);
@@ -273,14 +261,11 @@ export default function App() {
   }, [backgroundColor]);
 
   useEffect(() => {
-  localStorage.setItem('inkflow-sidebar-open', isSidebarOpen.toString());
+    localStorage.setItem('inkflow-sidebar-open', isSidebarOpen.toString());
   }, [isSidebarOpen]);
 
   // --- Initial Mount Load ---
   useEffect(() => {
-    // If joining a shared session, don't overwrite with local storage!
-    if (window.location.hash.includes('room=')) return;
-    
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
@@ -651,14 +636,6 @@ export default function App() {
       setCursorStyle('cursor-grab');
       return;
     }
-    
-    // Broadcast cursor position to peers (using document coords to sync correctly)
-    const canvasX = (clientX - pan.x) / zoom;
-    const canvasY = (clientY - pan.y) / zoom;
-    if (isShared) {
-      updateCursor(canvasX, canvasY);
-    }
-
     if (
       tool === 'pencil' ||
       tool === 'rectangle' ||
@@ -683,6 +660,9 @@ export default function App() {
     }
 
     if (tool === 'select') {
+      const canvasX = (clientX - pan.x) / zoom;
+      const canvasY = (clientY - pan.y) / zoom;
+
       // Handle hover resizing pointers
       if (selectedIds.length === 1) {
         const selElement = elements.find((el) => el.id === selectedIds[0]);
@@ -1527,14 +1507,6 @@ export default function App() {
         />
       )}
 
-      {/* Share and Username Controls */}
-      <MultiplayerControls
-        isShared={isShared}
-        shareSession={shareSession}
-        myName={myName}
-        updateMyName={updateMyName}
-      />
-
       {/* Floating Toolbar (Top Center) */}
       <Toolbar activeTool={tool} setTool={setTool} onImageUpload={handleToolbarImageUpload} />
       {contextMenu && (
@@ -1572,11 +1544,6 @@ export default function App() {
         onPermanentDelete={handlePermanentDelete}
         onEmptyTrash={handleEmptyTrash}
       />
-
-      {/* Remote Cursors Layer */}
-      {isShared && (
-        <CursorOverlay cursors={remoteCursors} pan={pan} zoom={zoom} />
-      )}
 
       {/* Zoom and Help Panels (Bottom Right) */}
       <div className="bottom-right-controls">
