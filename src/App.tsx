@@ -915,7 +915,9 @@ export default function App() {
       setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
       setLastMousePos({ x: e.clientX, y: e.clientY });
     } else if (action === 'drawing') {
-      const index = elements.length - 1;
+      const activeId = selectedIds[0];
+      const index = elements.findIndex((el) => el.id === activeId);
+      if (index === -1) return;
       const current = elements[index];
       let updated = { ...current };
 
@@ -1033,13 +1035,16 @@ export default function App() {
 
     if (action === 'drawing') {
       // Normalize bounds of rectangle/circle for future selections
-      const index = elements.length - 1;
-      const finished = elements[index];
-      const normalized = adjustElementCoordinates(finished);
-      const copy = [...elements];
-      copy[index] = { ...finished, ...normalized };
-      setElements(copy);
-      pushHistory(copy);
+      const activeId = selectedIds[0];
+      const index = elements.findIndex((el) => el.id === activeId);
+      if (index !== -1) {
+        const finished = elements[index];
+        const normalized = adjustElementCoordinates(finished);
+        const copy = [...elements];
+        copy[index] = { ...finished, ...normalized };
+        setElements(copy);
+        pushHistory(copy);
+      }
       setAction('none');
     } else if (action === 'moving' || action === 'resizing') {
       // Normalize shapes bounds
