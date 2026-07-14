@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
+import { WebrtcProvider } from 'y-webrtc';
 import type { DrawingElement } from '../types';
 
 export type RemoteCursor = {
@@ -18,8 +18,8 @@ export type ChatMessage = {
   timestamp: number;
 };
 
-// Public Yjs demo WebSocket server (verified working via test-sync.mjs)
-const WS_SERVER_URL = 'wss://demos.yjs.dev';
+// Use custom signaling server for y-webrtc that allows github.io origin
+const SIGNALING_SERVERS = ['wss://y-webrtc-eu.fly.dev'];
 
 export function useMultiplayer(initialElements: DrawingElement[]) {
   const [elements, setLocalElements] = useState<DrawingElement[]>(initialElements);
@@ -35,7 +35,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   const [yElementCount, setYElementCount] = useState<number>(0);
 
   const ydocRef = useRef<Y.Doc>(new Y.Doc());
-  const providerRef = useRef<WebsocketProvider | null>(null);
+  const providerRef = useRef<WebrtcProvider | null>(null);
 
   const yElementsRef = useRef<Y.Map<DrawingElement> | null>(null);
   const yChatRef = useRef<Y.Array<ChatMessage> | null>(null);
@@ -102,37 +102,36 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
 
         if (!providerRef.current) {
           const fullRoom = `${room}-${key}`;
-          console.log('[Inkflow] Connecting to room:', fullRoom);
-          const provider = new WebsocketProvider(WS_SERVER_URL, fullRoom, ydocRef.current);
+          console.log('[Inkflow] Connecting to WebRTC room:', fullRoom);
+          const provider = new WebrtcProvider(fullRoom, ydocRef.current, {
+            signaling: SIGNALING_SERVERS
+          });
           providerRef.current = provider;
 
-          provider.on('status', (event: { status: string }) => {
-            console.log('[Inkflow] WebSocket status:', event.status);
-            setWsStatus(event.status);
-          });
-
-          provider.on('sync', (isSynced: boolean) => {
-            console.log('[Inkflow] Synced:', isSynced);
-            setSyncStatus(isSynced);
+          provider.on('synced', (state: { synced: boolean }) => {
+            console.log('[Inkflow] WebRTC Synced:', state.synced);
+            setSyncStatus(state.synced);
+            setWsStatus(state.synced ? 'connected' : 'connecting');
           });
 
           // Handle awareness (cursors)
-          const awareness = provider.awareness;
-          awareness.on('change', () => {
-            const states = awareness.getStates();
+          provider.awareness.on('change', () => {
+            const states = provider.awareness.getStates();
             const cursors: Record<number, RemoteCursor> = {};
-            states.forEach((state, clientID) => {
-              if (clientID !== ydocRef.current.clientID && state.cursor) {
-                cursors[clientID] = state.cursor;
+            
+            states.forEach((state, clientId) => {
+              if (clientId !== ydocRef.current.clientID && state.cursor) {
+                cursors[clientId] = state.cursor;
               }
             });
+            
             setRemoteCursors(cursors);
           });
 
           // Broadcast name if already set
           const name = myNameRef.current;
           if (name) {
-            awareness.setLocalStateField('cursor', {
+            provider.awareness.setLocalStateField('cursor', {
               x: 0,
               y: 0,
               name,
