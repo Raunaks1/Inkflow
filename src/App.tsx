@@ -204,6 +204,7 @@ export default function App() {
   const {
     elements,
     setElements,
+    updateElement,
     deleteElements,
     remoteCursors,
     updateCursor,
@@ -653,17 +654,11 @@ export default function App() {
     
     // If elements are selected, propagate change to selection
     if (selectedIds.length > 0) {
-      const updated = elements.map((el) => {
+      elements.forEach((el) => {
         if (selectedIds.includes(el.id)) {
-          return {
-            ...el,
-            style: { ...el.style, ...newFields },
-          };
+          updateElement({ ...el, style: { ...el.style, ...newFields } });
         }
-        return el;
       });
-      setElements(updated);
-      pushHistory(updated);
     }
   };
 
@@ -949,9 +944,9 @@ export default function App() {
         };
       }
 
-      const copy = [...elements];
-      copy[index] = updated;
-      setElements(copy);
+      // Only push the single changed element to Yjs.
+      // The Yjs observer will update React state for all clients (including ours).
+      updateElement(updated);
     } else if (action === 'moving') {
       const dx = canvasX - lastCanvasPos.x;
       const dy = canvasY - lastCanvasPos.y;
@@ -997,7 +992,11 @@ export default function App() {
 
         return el;
       });
-      setElements(updated);
+      // Push each changed element individually to Yjs
+      updated.forEach(el => {
+        const original = elements.find(o => o.id === el.id);
+        if (el !== original) updateElement(el);
+      });
       setLastCanvasPos({ x: canvasX, y: canvasY });
     } else if (action === 'resizing' && selectedIds.length === 1 && selectedHandle) {
       const id = selectedIds[0];
@@ -1015,14 +1014,9 @@ export default function App() {
           }
         }
         
-        setElements(
-          elements.map((el) => {
-            if (el.id === id) {
-              return { ...el, ...resized };
-            }
-            return el;
-          })
-        );
+        // Push only the resized element to Yjs
+        const finalResized = { ...target, ...resized };
+        updateElement(finalResized);
       }
     } else if (action === 'selection') {
       setSelectionEnd({ x: canvasX, y: canvasY });
@@ -1042,23 +1036,20 @@ export default function App() {
       if (index !== -1) {
         const finished = elements[index];
         const normalized = adjustElementCoordinates(finished);
-        const copy = [...elements];
-        copy[index] = { ...finished, ...normalized };
-        setElements(copy);
-        pushHistory(copy);
+        const finalEl = { ...finished, ...normalized };
+        updateElement(finalEl);
+        pushHistory([]);
       }
       setAction('none');
     } else if (action === 'moving' || action === 'resizing') {
-      // Normalize shapes bounds
-      const updated = elements.map((el) => {
+      // Normalize shapes bounds — push each changed element individually
+      elements.forEach(el => {
         if (selectedIds.includes(el.id)) {
           const normalized = adjustElementCoordinates(el);
-          return { ...el, ...normalized };
+          updateElement({ ...el, ...normalized });
         }
-        return el;
       });
-      setElements(updated);
-      pushHistory(updated);
+      pushHistory([]);
       setAction('none');
       setSelectedHandle(null);
     } else if (action === 'selection' && selectionStart && selectionEnd) {

@@ -56,7 +56,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     const undoManager = new Y.UndoManager(yElements);
     undoManagerRef.current = undoManager;
     
-    // Sync Yjs map to local React state
+    // Sync Yjs map to local React state - this fires on ANY change (local or remote)
     const updateLocalElements = () => {
       const newElements = Array.from(yElements.values());
       // Sort elements by ID to ensure stable render order
@@ -163,32 +163,61 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     }
   }, [myName]);
 
-  // When Local state changes, update Yjs Map
-  const setElements = useCallback((newElements: DrawingElement[] | ((prev: DrawingElement[]) => DrawingElement[])) => {
-    setLocalElements((prev) => {
-      const next = typeof newElements === 'function' ? newElements(prev) : newElements;
-      
-      const ydoc = ydocRef.current;
-      const yElements = yElementsRef.current;
-      
-      if (ydoc && yElements) {
-        ydoc.transact(() => {
-          const nextIds = new Set<string>();
-
-          next.forEach(el => {
-            nextIds.add(el.id);
-            const existing = yElements.get(el.id);
-            if (!existing || JSON.stringify(existing) !== JSON.stringify(el)) {
-              yElements.set(el.id, el);
-            }
-          });
-          // Implicit deletions removed: we now use explicit deleteElements()
-        }, 'local-user'); // tagging the transaction is important for UndoManager!
-      }
-      return next;
-    });
+  /**
+   * updateElement: Directly updates a SINGLE element in the Yjs map.
+   * This is the primary write path for drawing/moving/resizing.
+   * It does NOT touch any other elements, so remote changes are never overwritten.
+   */
+  const updateElement = useCallback((el: DrawingElement) => {
+    const ydoc = ydocRef.current;
+    const yElements = yElementsRef.current;
+    if (ydoc && yElements) {
+      ydoc.transact(() => {
+        yElements.set(el.id, el);
+      }, 'local-user');
+    }
   }, []);
 
+  /**
+   * setElements: Replaces the ENTIRE canvas (used for clear, import, initial load).
+   * This correctly replaces everything in the Yjs map.
+   * IMPORTANT: This must only be used when you intend to replace the full canvas.
+   */
+  const setElements = useCallback((newElements: DrawingElement[] | ((prev: DrawingElement[]) => DrawingElement[])) => {
+    const ydoc = ydocRef.current;
+    const yElements = yElementsRef.current;
+
+    if (ydoc && yElements) {
+      // We compute the new array from the current Yjs state (not stale React state)
+      const currentFromYjs = Array.from(yElements.values());
+      const next = typeof newElements === 'function' ? newElements(currentFromYjs) : newElements;
+
+      ydoc.transact(() => {
+        // First, add/update all elements in `next`
+        const nextIds = new Set<string>();
+        next.forEach(el => {
+          nextIds.add(el.id);
+          const existing = yElements.get(el.id);
+          if (!existing || JSON.stringify(existing) !== JSON.stringify(el)) {
+            yElements.set(el.id, el);
+          }
+        });
+
+        // Remove elements that are in Yjs but NOT in the new array
+        // This is only safe here because setElements is called when we want a full replace
+        Array.from(yElements.keys()).forEach(id => {
+          if (!nextIds.has(id)) {
+            yElements.delete(id);
+          }
+        });
+      }, 'local-user');
+    }
+  }, []);
+
+  /**
+   * deleteElements: Explicitly removes specific elements by ID from the Yjs map.
+   * Use this when the user deletes shapes (eraser, delete key, context menu).
+   */
   const deleteElements = useCallback((ids: string[]) => {
     if (ydocRef.current && yElementsRef.current) {
       ydocRef.current.transact(() => {
@@ -262,6 +291,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   return {
     elements,
     setElements,
+    updateElement,
     deleteElements,
     remoteCursors,
     updateCursor,
