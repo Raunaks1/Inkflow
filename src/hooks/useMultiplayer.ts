@@ -173,7 +173,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
       
       if (ydoc && yElements) {
         ydoc.transact(() => {
-          const currentIds = new Set(yElements.keys());
+          const prevIds = new Set(prev.map(el => el.id));
           const nextIds = new Set<string>();
 
           next.forEach(el => {
@@ -184,7 +184,9 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
             }
           });
 
-          currentIds.forEach(id => {
+          // Only delete elements that were in our local state but were explicitly removed
+          // This prevents deleting remote elements that just haven't synced to React yet
+          prevIds.forEach(id => {
             if (!nextIds.has(id)) {
               yElements.delete(id);
             }
