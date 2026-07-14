@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Y from 'yjs';
-import { WebrtcProvider } from 'y-webrtc';
+import { WebsocketProvider } from 'y-websocket';
 import type { DrawingElement } from '../types';
 
 export type RemoteCursor = {
@@ -18,6 +18,9 @@ export type ChatMessage = {
   timestamp: number;
 };
 
+// Public Yjs demo WebSocket server — reliable, works through all firewalls
+const WS_SERVER_URL = 'wss://demos.yjs.dev/ws';
+
 export function useMultiplayer(initialElements: DrawingElement[]) {
   const [elements, setLocalElements] = useState<DrawingElement[]>(initialElements);
   const [remoteCursors, setRemoteCursors] = useState<Record<number, RemoteCursor>>({});
@@ -27,51 +30,42 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   const [roomUrl, setRoomUrl] = useState<string>('');
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  
-  // We want the Ydoc to exist ALWAYS (even offline) so we get UndoManager for free!
+
   const ydocRef = useRef<Y.Doc>(new Y.Doc());
-  const providerRef = useRef<WebrtcProvider | null>(null);
-  
-  // Lazy initialize Y.Map and UndoManager to avoid re-creation
+  const providerRef = useRef<WebsocketProvider | null>(null);
+
   const yElementsRef = useRef<Y.Map<DrawingElement> | null>(null);
   const yChatRef = useRef<Y.Array<ChatMessage> | null>(null);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
 
-  // We assign a random color for our own cursor
   const myColorRef = useRef<string>(`hsl(${Math.random() * 360}, 80%, 50%)`);
 
   // Initialize Ydoc structures once
   useEffect(() => {
     const ydoc = ydocRef.current;
-    
-    // Set up elements map
+
     const yElements = ydoc.getMap<DrawingElement>('elements');
     yElementsRef.current = yElements;
-    
-    // Set up chat array
+
     const yChat = ydoc.getArray<ChatMessage>('chat');
     yChatRef.current = yChat;
-    
-    // Set up UndoManager tracking ONLY the elements map
+
     const undoManager = new Y.UndoManager(yElements);
     undoManagerRef.current = undoManager;
-    
-    // Sync Yjs map to local React state - this fires on ANY change (local or remote)
+
+    // Sync Yjs map → React state on ANY change (local or remote)
     const updateLocalElements = () => {
       const newElements = Array.from(yElements.values());
-      // Sort elements by ID to ensure stable render order
       newElements.sort((a, b) => a.id.localeCompare(b.id));
       setLocalElements(newElements);
     };
-    
+
     yElements.observe(updateLocalElements);
-    
-    // Sync Chat array to local React state
+
     yChat.observe(() => {
       setChatMessages(yChat.toArray());
     });
-    
-    // Listen for undo/redo stack changes to update UI buttons
+
     undoManager.on('stack-item-added', () => {
       setCanUndo(undoManager.undoStack.length > 0);
       setCanRedo(undoManager.redoStack.length > 0);
@@ -86,7 +80,7 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     };
   }, []);
 
-  // Handle URL hash changes to connect/disconnect WebRTC
+  // Handle URL hash changes to connect/disconnect WebSocket provider
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -99,14 +93,9 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
         setRoomUrl(window.location.href);
 
         if (!providerRef.current) {
-          const provider = new WebrtcProvider(room, ydocRef.current, {
-            password: key,
-            signaling: [
-              'wss://signaling.yjs.dev',
-              'wss://y-webrtc-signaling-eu.herokuapp.com',
-              'wss://y-webrtc-signaling-us.herokuapp.com'
-            ]
-          });
+          // Use key as part of room name for privacy (no one can guess the full room name)
+          const fullRoom = `${room}-${key}`;
+          const provider = new WebsocketProvider(WS_SERVER_URL, fullRoom, ydocRef.current);
           providerRef.current = provider;
 
           // Handle awareness (cursors)
@@ -121,16 +110,20 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
             });
             setRemoteCursors(cursors);
           });
-          
-          // Re-broadcast our own name/cursor if we just connected
+
           if (myName) {
-             awareness.setLocalStateField('cursor', {
-               x: 0,
-               y: 0,
-               name: myName,
-               color: myColorRef.current
-             });
+            awareness.setLocalStateField('cursor', {
+              x: 0,
+              y: 0,
+              name: myName,
+              color: myColorRef.current,
+            });
           }
+
+          // Log connection status for debugging
+          provider.on('status', (event: { status: string }) => {
+            console.log('[Inkflow Sync]', event.status);
+          });
         }
       } else {
         setIsShared(false);
@@ -152,16 +145,19 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   }, [myName]);
 
   // Update my cursor position
-  const updateCursor = useCallback((x: number, y: number) => {
-    if (providerRef.current && myName) {
-      providerRef.current.awareness.setLocalStateField('cursor', {
-        x,
-        y,
-        name: myName,
-        color: myColorRef.current
-      });
-    }
-  }, [myName]);
+  const updateCursor = useCallback(
+    (x: number, y: number) => {
+      if (providerRef.current && myName) {
+        providerRef.current.awareness.setLocalStateField('cursor', {
+          x,
+          y,
+          name: myName,
+          color: myColorRef.current,
+        });
+      }
+    },
+    [myName]
+  );
 
   /**
    * updateElement: Directly updates a SINGLE element in the Yjs map.
@@ -180,48 +176,46 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
 
   /**
    * setElements: Replaces the ENTIRE canvas (used for clear, import, initial load).
-   * This correctly replaces everything in the Yjs map.
-   * IMPORTANT: This must only be used when you intend to replace the full canvas.
+   * Correctly replaces everything in the Yjs map.
    */
-  const setElements = useCallback((newElements: DrawingElement[] | ((prev: DrawingElement[]) => DrawingElement[])) => {
-    const ydoc = ydocRef.current;
-    const yElements = yElementsRef.current;
+  const setElements = useCallback(
+    (newElements: DrawingElement[] | ((prev: DrawingElement[]) => DrawingElement[])) => {
+      const ydoc = ydocRef.current;
+      const yElements = yElementsRef.current;
 
-    if (ydoc && yElements) {
-      // We compute the new array from the current Yjs state (not stale React state)
-      const currentFromYjs = Array.from(yElements.values());
-      const next = typeof newElements === 'function' ? newElements(currentFromYjs) : newElements;
+      if (ydoc && yElements) {
+        const currentFromYjs = Array.from(yElements.values());
+        const next = typeof newElements === 'function' ? newElements(currentFromYjs) : newElements;
 
-      ydoc.transact(() => {
-        // First, add/update all elements in `next`
-        const nextIds = new Set<string>();
-        next.forEach(el => {
-          nextIds.add(el.id);
-          const existing = yElements.get(el.id);
-          if (!existing || JSON.stringify(existing) !== JSON.stringify(el)) {
-            yElements.set(el.id, el);
-          }
-        });
+        ydoc.transact(() => {
+          const nextIds = new Set<string>();
+          next.forEach((el) => {
+            nextIds.add(el.id);
+            const existing = yElements.get(el.id);
+            if (!existing || JSON.stringify(existing) !== JSON.stringify(el)) {
+              yElements.set(el.id, el);
+            }
+          });
 
-        // Remove elements that are in Yjs but NOT in the new array
-        // This is only safe here because setElements is called when we want a full replace
-        Array.from(yElements.keys()).forEach(id => {
-          if (!nextIds.has(id)) {
-            yElements.delete(id);
-          }
-        });
-      }, 'local-user');
-    }
-  }, []);
+          // Delete elements not in new array (only safe for full-canvas replacements)
+          Array.from(yElements.keys()).forEach((id) => {
+            if (!nextIds.has(id)) {
+              yElements.delete(id);
+            }
+          });
+        }, 'local-user');
+      }
+    },
+    []
+  );
 
   /**
    * deleteElements: Explicitly removes specific elements by ID from the Yjs map.
-   * Use this when the user deletes shapes (eraser, delete key, context menu).
    */
   const deleteElements = useCallback((ids: string[]) => {
     if (ydocRef.current && yElementsRef.current) {
       ydocRef.current.transact(() => {
-        ids.forEach(id => {
+        ids.forEach((id) => {
           yElementsRef.current?.delete(id);
         });
       }, 'local-user');
@@ -239,18 +233,23 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
       undoManagerRef.current.redo();
     }
   }, []);
-  
-  const sendChatMessage = useCallback((message: string) => {
-    if (yChatRef.current && myName) {
-       yChatRef.current.push([{
-         id: Math.random().toString(36).substring(2, 9),
-         name: myName,
-         color: myColorRef.current,
-         message,
-         timestamp: Date.now()
-       }]);
-    }
-  }, [myName]);
+
+  const sendChatMessage = useCallback(
+    (message: string) => {
+      if (yChatRef.current && myName) {
+        yChatRef.current.push([
+          {
+            id: Math.random().toString(36).substring(2, 9),
+            name: myName,
+            color: myColorRef.current,
+            message,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+    },
+    [myName]
+  );
 
   // Action to start sharing
   const shareSession = useCallback(() => {
@@ -260,14 +259,17 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     url.hash = `room=${room}&key=${key}`;
     window.history.pushState({}, '', url.toString());
     window.dispatchEvent(new HashChangeEvent('hashchange'));
-    
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url.toString()).then(() => {
-        alert('Link copied to clipboard! Share it to collaborate.');
-      }).catch(err => {
-        console.error('Failed to copy text: ', err);
-        alert(`Your share link is:\n\n${url.toString()}\n\nPlease copy this link to share.`);
-      });
+      navigator.clipboard
+        .writeText(url.toString())
+        .then(() => {
+          alert('Link copied to clipboard! Share it to collaborate.');
+        })
+        .catch((err) => {
+          console.error('Failed to copy text: ', err);
+          alert(`Your share link is:\n\n${url.toString()}\n\nPlease copy this link to share.`);
+        });
     } else {
       alert(`Your share link is:\n\n${url.toString()}\n\nPlease copy this link to share.`);
     }
@@ -277,13 +279,12 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
   const updateMyName = useCallback((name: string) => {
     setMyName(name);
     localStorage.setItem('inkflow-username', name);
-    // Push awareness immediately
     if (providerRef.current) {
       providerRef.current.awareness.setLocalStateField('cursor', {
         x: 0,
         y: 0,
         name,
-        color: myColorRef.current
+        color: myColorRef.current,
       });
     }
   }, []);
@@ -305,6 +306,6 @@ export function useMultiplayer(initialElements: DrawingElement[]) {
     canUndo,
     canRedo,
     chatMessages,
-    sendChatMessage
+    sendChatMessage,
   };
 }
