@@ -732,3 +732,43 @@ body, html {
 .cursor-eraser-tool {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m20 20-5-5'/%3E%3Cpath d='M16 16c0-2.2-1.8-4-4-4s-4 1.8-4 4 1.8 4 4 4 4-1.8 4-4Z'/%3E%3C/svg%3E") 12 12, auto !important;
 }
+.context-menu {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  z-index: 1000;
+  min-width: 200px;
+}
+.context-menu label {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--text-color);
+}
+.context-menu input,
+.context-menu select {
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: var(--text-color);
+}
+.context-menu button.delete {
+  background: var(--danger-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.context-menu button.delete:hover {
+  background: var(--danger-color-hover);
+}

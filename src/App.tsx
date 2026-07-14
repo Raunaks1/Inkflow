@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ContextMenu } from './components/ContextMenu';
 import rough from 'roughjs';
 import confetti from 'canvas-confetti';
 import { HelpCircle } from 'lucide-react';
@@ -221,6 +222,7 @@ export default function App() {
   const [action, setAction] = useState<
     'none' | 'drawing' | 'moving' | 'resizing' | 'panning' | 'selection' | 'typing' | 'laser-drawing'
   >('none');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
 
   // Multi-step interactions helper
   const [selectionStart, setSelectionStart] = useState<Point | null>(null);
@@ -342,7 +344,7 @@ export default function App() {
     const rc = rough.canvas(canvas);
     
     // Draw all components
-    elements.forEach((element) => {
+    elements.filter((el) => !el.isDeleted).forEach((element) => {
       drawElement(rc, ctx, element);
 
       // Selection bounding box
@@ -1119,12 +1121,16 @@ export default function App() {
 
   const deleteSelectedElements = () => {
     if (selectedIds.length === 0) return;
-    const remaining = elements.map((el) => 
-      selectedIds.includes(el.id) ? { ...el, isDeleted: true } : el
+    const filtered = elements.filter(el =>
+      !selectedIds.includes(el.id) &&
+      !(el.type === 'arrow' && (selectedIds.includes(el.boundToStart ?? '') || selectedIds.includes(el.boundToEnd ?? '')))
     );
-    setElements(remaining);
+    setElements(filtered);
+    pushHistory(filtered);
+    // Clear editing state if any selected element was being edited
+    setEditingElement(prev => (prev && selectedIds.includes(prev.id) ? null : prev));
+    setEditingText('');
     setSelectedIds([]);
-    pushHistory(remaining);
   };
 
   const handleClearCanvas = () => {
@@ -1156,6 +1162,39 @@ export default function App() {
       setElements(updated);
       pushHistory(updated);
     }
+  };
+
+  // Right-click context menu handler
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const canvasX = (e.clientX - pan.x) / zoom;
+    const canvasY = (e.clientY - pan.y) / zoom;
+    const clicked = getElementAtPosition(canvasX, canvasY, elements);
+    if (clicked) {
+      setSelectedIds([clicked.id]);
+      setContextMenu({ x: e.clientX, y: e.clientY, elementId: clicked.id });
+    } else {
+      setContextMenu(null);
+    }
+  };
+
+  // Update element style (partial)
+  const updateElementStyle = (id: string, partial: Partial<ElementStyle>) => {
+    setElements(elements.map(el =>
+      el.id === id ? { ...el, style: { ...el.style, ...partial } } : el
+    ));
+  };
+
+  const deleteElement = (id: string) => {
+    // Permanently remove the element and any arrows bound to it
+    const filtered = elements.filter(el => el.id !== id && !(el.type === 'arrow' && (el.boundToStart === id || el.boundToEnd === id)));
+    setElements(filtered);
+    pushHistory(filtered);
+    // Clear editing state if the deleted element was being edited
+    setEditingElement(prev => (prev && prev.id === id ? null : prev));
+    setEditingText('');
+    setContextMenu(null);
+    setSelectedIds([]);
   };
 
   // --- Zoom controls UI ---
@@ -1426,6 +1465,7 @@ export default function App() {
         onMouseUp={handleMouseUp}
         onDoubleClick={handleDoubleClick}
         onWheel={handleWheel}
+        onContextMenu={handleContextMenu}
       />
 
       {/* Inline textarea when typing */}
@@ -1469,6 +1509,16 @@ export default function App() {
 
       {/* Floating Toolbar (Top Center) */}
       <Toolbar activeTool={tool} setTool={setTool} onImageUpload={handleToolbarImageUpload} />
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          element={elements.find(el => el.id === contextMenu.elementId)!}
+          onStyleChange={style => updateElementStyle(contextMenu.elementId, style)}
+          onDelete={() => deleteElement(contextMenu.elementId)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {/* Floating Styling and Control Sidebar (Left side) */}
       <Sidebar
