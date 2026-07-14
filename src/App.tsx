@@ -1302,7 +1302,7 @@ export default function App() {
 
       elements.forEach((el) => {
         if (el.isDeleted) return;
-        const { type, x1, y1, x2, y2, style: elStyle, text } = el;
+        const { type, x1, y1, x2, y2, style: elStyle, text, imageData } = el;
         const stroke = elStyle.strokeColor;
         const strokeW = elStyle.strokeWidth;
         const fill = elStyle.fillColor === 'transparent' ? 'none' : elStyle.fillColor;
